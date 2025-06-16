@@ -1,0 +1,56 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v1812                                 |
+|   \\  /    A nd           | Web:      www.OpenFOAM.org                      |
+|    \\/     /  M anipulation|                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      createPatchDict;
+}
+
+pointSync false;
+
+patches
+(
+    {
+        name slat;
+        patchInfo { type wall; }
+        constructFrom patches;
+        patches (slat);
+    }
+
+    {
+        name main;
+        patchInfo { type wall; }
+        constructFrom patches;
+        patches (main);
+    }
+
+    {
+        name flap;
+        patchInfo { type wall; }
+        constructFrom patches;
+        patches (flap);
+    }
+
+    {
+        name sym;
+        patchInfo { type symmetry; }
+        constructFrom patches;
+        patches (front back);
+    }
+
+    {
+        name inout;
+        patchInfo { type patch; }
+        constructFrom patches;
+        patches (inlet outlet bot top);
+    }
+);
+
+// ************************************************************************* //
