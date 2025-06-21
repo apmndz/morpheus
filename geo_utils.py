@@ -42,7 +42,7 @@ def _label_by_centroid(parts):
     order  = np.argsort([p.center[0] for p in parts])
     return dict(zip(("slat", "main", "flap"), [parts[i] for i in order]))
 
-
+ 
 def detect_geometry_info(stl_path):
     """Return dict[name] → {LE_point, TE_point, mesh, chord_vector}."""
     parts = (
