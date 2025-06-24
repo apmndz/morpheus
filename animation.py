@@ -23,7 +23,7 @@ def build_animation(folder: str, pattern: str, fps: int, outfile: str) -> None:
     frames = [imageio.imread(p) for p in paths]
 
     if outfile.lower().endswith('.gif'):
-        imageio.mimsave(outfile, frames, fps=fps)    
+        imageio.mimsave(outfile, frames, fps=fps, loop=0)  # loop=0 means infinite loop    
     else: 
         imageio.mimsave(
             outfile,
@@ -33,7 +33,7 @@ def build_animation(folder: str, pattern: str, fps: int, outfile: str) -> None:
             quality=8,                  # 0‑10 (higher → better/larger)
             macro_block_size=None       # stops imageio auto‑padding
         )
-    print(f'wrote {outfile} with {len(frames)} frames at {fps} fps.')
+    print(f'wrote {outfile} with {len(frames)} frames at {fps} fps.')
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
