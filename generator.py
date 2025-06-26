@@ -47,32 +47,70 @@ def apply_local_bumps(dv, idx_f, idx_b,
 def mk_curve(p, z=[0,.1]): 
     return Curve(x=[p[0]]*2, y=[p[1]]*2, z=z, k=2)
 
-def r_slat(v, g): 
-    g.rot_z["slat"].coef[:] = -v[0]  
+def get_initial_angle(chord_vector):
+    """Calculate angle between chord vector and horizontal (x-axis)"""
+    return np.arctan2(chord_vector[1], chord_vector[0]) * 180/np.pi
 
-def r_flap(v, g): 
-    g.rot_z["flap"].coef[:] = -v[0]
+def r_slat(v, g):
+    """Apply slat rotation relative to horizontal if enabled"""
+    if ENABLE_SLAT_ROTATION:
+        g.rot_z["slat"].coef[:] = -v[0] - g.initial_slat_angle
+    else:
+        g.rot_z["slat"].coef[:] = 0  # No rotation needed since initial value handles it
+
+def r_flap(v, g):
+    """Apply flap rotation relative to horizontal if enabled"""
+    if ENABLE_FLAP_ROTATION:
+        g.rot_z["flap"].coef[:] = -v[0] - g.initial_flap_angle
+    else:
+        g.rot_z["flap"].coef[:] = 0  # No rotation needed since initial value handles it
 
 def o_slat(v, g):
-    C = g.extractCoef("slat")
-    C[:,0] += v[0] + v[1]
-    g.restoreCoef(C, "slat")
+    """Apply slat translation if enabled. v contains [gap, overhang, vertical]"""
+    if ENABLE_SLAT_TRANSLATION:
+        C = g.extractCoef("slat")
+        # Only use overhang for x movement, ignore gap parameter
+        C[:,0] += v[1]  # v[1] is overhang
+        C[:,1] += v[2]  # v[2] is vertical
+        g.restoreCoef(C, "slat")
 
 def o_flap(v, g):
-    C = g.extractCoef("flap")
-    C[:,0] -= v[0] - v[1]
-    g.restoreCoef(C, "flap")
+    """Apply flap translation if enabled. v contains [gap, overhang, vertical]"""
+    if ENABLE_FLAP_TRANSLATION:
+        C = g.extractCoef("flap")
+        # Only use overhang for x movement, ignore gap parameter
+        C[:,0] -= v[1]  # v[1] is overhang
+        C[:,1] += v[2]  # v[2] is vertical
+        g.restoreCoef(C, "flap")
 
 def make_dvgeo(pts, geom, ffd_filename):
+    """Initialize DVGeometry with pre-calculated initial angles"""
     dv = DVGeometry(ffd_filename)
+    
+    # Calculate initial angles from geometry info we already have
+    dv.initial_slat_angle = get_initial_angle(geom["slat"]["chord_vector"])
+    dv.initial_flap_angle = get_initial_angle(geom["flap"]["chord_vector"])
+    
+    # Set up reference axes and design variables
     dv.addRefAxis("slat", mk_curve(geom["slat"]["TE_point"]), axis="z", volumes=[0])
     dv.addRefAxis("flap", mk_curve(geom["flap"]["LE_point"]), axis="z", volumes=[2])
     dv.addLocalDV("mainX", -0.8, .8, axis="x")
     dv.addLocalDV("mainY", -0.8, .8, axis="y")
-    dv.addGlobalDV("tw_slat", [0.0], r_slat)
-    dv.addGlobalDV("tw_flap", [0.0], r_flap)
-    dv.addGlobalDV("of_slat", [0.0, 0.0], o_slat)
-    dv.addGlobalDV("of_flap", [0.0, 0.0], o_flap)
+    
+    # Initialize angles based on enabled/disabled state
+    slat_init = [0.0] if ENABLE_SLAT_ROTATION else [dv.initial_slat_angle]
+    flap_init = [0.0] if ENABLE_FLAP_ROTATION else [dv.initial_flap_angle]
+    
+    # Initialize translations based on enabled/disabled state
+    slat_trans = [0.0, 0.0, 0.0] if ENABLE_SLAT_TRANSLATION else None  # Added third component
+    flap_trans = [0.0, 0.0, 0.0] if ENABLE_FLAP_TRANSLATION else None  # Added third component
+    
+    dv.addGlobalDV("tw_slat", slat_init, r_slat)
+    dv.addGlobalDV("tw_flap", flap_init, r_flap)
+    if slat_trans is not None:
+        dv.addGlobalDV("of_slat", slat_trans, o_slat)
+    if flap_trans is not None:
+        dv.addGlobalDV("of_flap", flap_trans, o_flap)
     dv.addPointSet(pts, "airfoil")
     idx = dv.getLocalIndex(1,1)
     return dv, idx[:,:,0].ravel(), idx[:,:,1].ravel()
@@ -88,11 +126,25 @@ def update_decompose_par_dict(filepath, n_proc):
 def generate(geo_only=False, mesh_only=False, mesh_vis_only=False):
     t_start = time.time()
     
-    # Create a suffix based on sampling methods
+    # Create a descriptive suffix based on all enabled features
+    config_suffix = []
+    if ENABLE_SLAT_ROTATION:
+        config_suffix.append("slatRot")
+    if ENABLE_FLAP_ROTATION:
+        config_suffix.append("flapRot")
+    if ENABLE_SLAT_TRANSLATION:
+        config_suffix.append("slatTrans")
+    if ENABLE_FLAP_TRANSLATION:
+        config_suffix.append("flapTrans")
+    if ENABLE_BUMPS:
+        config_suffix.append("bumps")
+    
+    # Combine all suffixes
+    config_str = "_".join(config_suffix) if config_suffix else "baseline"
     sampling_suffix = f"_{MAIN_DV_SAMPLING}_{LOCAL_BUMP_SAMPLING}"
     
     raw_basename = os.path.splitext(os.path.basename(RAW_STL))[0]
-    airfoil_output = os.path.join(OUT_DIR, f"{raw_basename}{sampling_suffix}")
+    airfoil_output = os.path.join(OUT_DIR, f"{raw_basename}_{config_str}{sampling_suffix}")
     
     # Geometry generation
     if not mesh_only and not mesh_vis_only:
@@ -121,8 +173,8 @@ def generate(geo_only=False, mesh_only=False, mesh_vis_only=False):
         base = {k: v.copy() for k, v in dvgeo.getValues().items()}
         
         if SAVE_IMAGES:
-            xpad = (pts0[:,0].max()-pts0[:,0].min())*0.05
-            ypad = (pts0[:,1].max()-pts0[:,1].min())*0.10
+            xpad = (pts0[:,0].max()-pts0[:,0].min())*0.075
+            ypad = (pts0[:,1].max()-pts0[:,1].min())*.7
             fig, ax = plt.subplots(figsize=(6, 3))
             ax.set_aspect("equal")
             ax.set_xlim(pts0[:,0].min()-xpad, pts0[:,0].max()+xpad)
@@ -148,11 +200,15 @@ def generate(geo_only=False, mesh_only=False, mesh_vis_only=False):
             dv = {k: v.copy() for k, v in base.items()}
             dv["tw_slat"][0] = sample["tw_slat"]
             dv["tw_flap"][0] = sample["tw_flap"]
-            dv["of_slat"][:] = sample["of_slat"]
-            dv["of_flap"][:] = sample["of_flap"]
-        
-            apply_local_bumps(dv, idx_f, idx_b)
-        
+            if ENABLE_SLAT_TRANSLATION and "of_slat" in dv:
+                dv["of_slat"][:] = sample["of_slat"]
+            if ENABLE_FLAP_TRANSLATION and "of_flap" in dv:
+                dv["of_flap"][:] = sample["of_flap"]
+    
+            # Only apply bumps if enabled in config
+            if ENABLE_BUMPS:
+                apply_local_bumps(dv, idx_f, idx_b)
+
             dvgeo.setDesignVars(dv)
             pts_mod = dvgeo.update("airfoil")
         
@@ -252,10 +308,11 @@ def generate(geo_only=False, mesh_only=False, mesh_vis_only=False):
                         os.rename(f, target)
             rename_stl_files(triSurface_folder)
         
+            # Modify the logging section to handle disabled translations
             acc_rows.append({
                 "idx": accepted,
-                "cmd_gap_slat": dv["of_slat"][0],
-                "cmd_gap_flap": dv["of_flap"][0],
+                "cmd_gap_slat": dv["of_slat"][0] if "of_slat" in dv else None,
+                "cmd_gap_flap": dv["of_flap"][0] if "of_flap" in dv else None,
                 "gap_slat": gap_slat,
                 "gap_flap": gap_flap
             })
