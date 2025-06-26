@@ -1,5 +1,7 @@
 # Input/Output settings
+GEO_TYPE = "stl"    # "stl" or "naca"
 RAW_STL = "input/STLs/three_element_1.stl"
+NACA = "0012"   # if GEO_TYPE == "naca", use RAW_STL flaps & slats. REQUIRES a RAW_STL
 OUT_DIR = "output"
 N_SAMPLES = 250
 
