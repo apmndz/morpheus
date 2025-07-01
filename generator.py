@@ -149,27 +149,13 @@ def generate_from_dvgeo(dvgeo, vals, basename, out_path, NACA=False, vis=False):
         None | str: Returns none if properly generated, str with error message if invalid
     """
     
+    start = time.time()
     f_r = vals["tw_flap"]
     f_t = vals["of_flap"]
     s_r = vals["tw_slat"]
     s_t = vals["of_slat"]
     out_name = f"{basename}_{f_r}_({f_t[0]},{f_t[1]})_{s_r}_({s_t[0]},{s_t[1]})"
     airfoil_output = os.path.join(out_path, "STLs", f"{out_name}.stl")
-    start = time.time()
-
-    afoil = dvgeo.update("airfoil")
-    afoil_stl = afoil.reshape(-1,3,3)
-    stl_obj = mesh.Mesh(np.zeros(afoil_stl.shape[0], dtype=mesh.Mesh.dtype))
-    stl_obj.vectors[:] = afoil_stl
-    # geom = detect_geometry_info(stl_obj)
-
-    # vis_dir = os.path.join(out_path, "images")
-    # fig, ax = visualize(out_name, afoil, dvgeo.FFD.coef)
-    # slat_le = geom["slat"]["LE_point"]
-    # print(slat_le[0], slat_le[1])
-    # ax.scatter(slat_le[0], slat_le[1], s=1, color="red")
-    # fig.savefig(os.path.join(vis_dir, f"{out_name}.png"), dpi=300)
-    # plt.close(fig)
 
     dv = dict()
     dv["tw_slat"] = [s_r]
@@ -182,8 +168,6 @@ def generate_from_dvgeo(dvgeo, vals, basename, out_path, NACA=False, vis=False):
     afoil_stl = afoil.reshape(-1,3,3)
     stl_obj = mesh.Mesh(np.zeros(afoil_stl.shape[0], dtype=mesh.Mesh.dtype))
     stl_obj.vectors[:] = afoil_stl
-    stl_obj.save("bleh.stl")
-    # stl_obj.save("blahblah.stl")
 
     try:
         geom = detect_geometry_info(stl_obj)
@@ -245,6 +229,7 @@ def sample_generate_geometries(def_stl_name, bounds, n=300, NACA = False, NACA_c
     # if not all(["tw_slat", "tw_flap", "of_slat", "of_flap"] in bounds):
     #     raise ValueError('"tw_slat", "tw_flap", "of_slat", "of_flap" keys not in "bounds"')
     start = time.time()
+    print(start)
     stl_input = "input/"+def_stl_name
     def_stl_obj = mesh.Mesh.from_file(stl_input)
     out_dir = os.path.join(os.getcwd(), output_dir)
@@ -271,7 +256,7 @@ def sample_generate_geometries(def_stl_name, bounds, n=300, NACA = False, NACA_c
     while accepted < n:
         print(f"Initiating trial {trials}.")
         sample = random_sample(dv_ranges=bounds)
-        res = generate_from_dvgeo(dvgeo, sample, basename, out_dir, NACA, vis=True)
+        res = generate_from_dvgeo(dvgeo, sample, basename, out_dir, NACA, vis=vis)
         trials+=1
         if res is None:
             accepted+=1
@@ -561,9 +546,9 @@ if __name__ == "__main__":
               "of_slat": [[-0.03, -0.02, 0], [0.02, 0.02, 0]], 
               "of_flap": [[-0.08, -0.02, 0], [0.07, 0.01, 0]]}
     
-    # sample_generate_geometries("baseline30P30N.stl", bounds, 10, output_dir="output", vis=True)
-    sample_generate_geometries("baseline30P30N.stl", bounds, 5, [2,4,12], output_dir="output", vis=True)
-    # sample_generate_geometries("baseline30P30N.stl", bounds, 5, [6,4,12], 1, output_dir="output", vis=True)
+    sample_generate_geometries("baseline30P30N.stl", bounds, 10, output_dir="output2", vis=False)
+    sample_generate_geometries("baseline30P30N.stl", bounds, 5, [2,4,12], output_dir="output", vis=False)
+    sample_generate_geometries("baseline30P30N.stl", bounds, 5, [6,4,12], 1, output_dir="output2", vis=False)
     # python generator.py
     # python generator.py --geo-only
     # python generator.py --mesh-only
