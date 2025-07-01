@@ -8,17 +8,15 @@ from shapely.geometry import Polygon
 import glob
 import fileinput
 import argparse
-
-from geo_utils import (generate_global_ffd, detect_geometry_info, boundary_loop_2d, 
-                            stretch_transform, split_stl_case, scale_to_unit)
+from geo_utils import *
 from pygeo           import DVGeometry
 from pyspline        import Curve
-from sampler import get_samples
+from sampler import get_samples, random_sample
 from animation import build_animation
 from mesher import mesh_case, build_mesh_animation
 
 # Import all settings from config
-from input.config import *
+from config import *
 
 def sample_bumps(n, bump_range, method=LOCAL_BUMP_SAMPLING):
     if method == "random":
@@ -53,17 +51,11 @@ def get_initial_angle(chord_vector):
 
 def r_slat(v, g):
     """Apply slat rotation relative to horizontal if enabled"""
-    if ENABLE_SLAT_ROTATION:
-        g.rot_z["slat"].coef[:] = -v[0] - g.initial_slat_angle
-    else:
-        g.rot_z["slat"].coef[:] = 0  # No rotation needed since initial value handles it
+    g.rot_z["slat"].coef[:] = - v[0] - g.initial_slat_angle
 
 def r_flap(v, g):
     """Apply flap rotation relative to horizontal if enabled"""
-    if ENABLE_FLAP_ROTATION:
-        g.rot_z["flap"].coef[:] = -v[0] - g.initial_flap_angle
-    else:
-        g.rot_z["flap"].coef[:] = 0  # No rotation needed since initial value handles it
+    g.rot_z["flap"].coef[:] = - v[0] - g.initial_flap_angle
 
 def o_slat(v, g):
     """Apply slat translation if enabled. v contains [gap, overhang, vertical]"""
@@ -88,7 +80,7 @@ def make_dvgeo(pts, geom, ffd_filename):
     dv = DVGeometry(ffd_filename)
     
     # Calculate initial angles from geometry info we already have
-    dv.initial_slat_angle = get_initial_angle(geom["slat"]["chord_vector"])
+    dv.initial_slat_angle = -90 + get_initial_angle(geom["slat"]["chord_vector"])
     dv.initial_flap_angle = get_initial_angle(geom["flap"]["chord_vector"])
     
     # Set up reference axes and design variables
@@ -98,15 +90,15 @@ def make_dvgeo(pts, geom, ffd_filename):
     dv.addLocalDV("mainY", -0.8, .8, axis="y")
     
     # Initialize angles based on enabled/disabled state
-    slat_init = [0.0] if ENABLE_SLAT_ROTATION else [dv.initial_slat_angle]
-    flap_init = [0.0] if ENABLE_FLAP_ROTATION else [dv.initial_flap_angle]
+    # slat_init = [0.0] if ENABLE_SLAT_ROTATION else [dv.initial_slat_angle]
+    # flap_init = [0.0] if ENABLE_FLAP_ROTATION else [dv.initial_flap_angle]
     
     # Initialize translations based on enabled/disabled state
     slat_trans = [0.0, 0.0, 0.0] if ENABLE_SLAT_TRANSLATION else None  # Added third component
     flap_trans = [0.0, 0.0, 0.0] if ENABLE_FLAP_TRANSLATION else None  # Added third component
     
-    dv.addGlobalDV("tw_slat", slat_init, r_slat)
-    dv.addGlobalDV("tw_flap", flap_init, r_flap)
+    dv.addGlobalDV("tw_slat", [90.0], r_slat)
+    dv.addGlobalDV("tw_flap", [0.0], r_flap)
     if slat_trans is not None:
         dv.addGlobalDV("of_slat", slat_trans, o_slat)
     if flap_trans is not None:
@@ -122,6 +114,177 @@ def update_decompose_par_dict(filepath, n_proc):
             print(f'numberOfSubdomains {n_proc};')
         else:
             print(line, end='')
+
+def visualize(name, *pointSets):
+    fig, ax = plt.subplots(figsize=(6, 3))
+    for points in pointSets:
+        xpad = (points[:,0].max()-points[:,0].min())*0.075
+        ypad = (points[:,1].max()-points[:,1].min())*.7
+        ax.scatter(points[:, 0], points[:, 1], s=1)
+    ax.set_xlim(pointSets[0][:,0].min()-xpad, pointSets[0][:,0].max()+xpad)
+    ax.set_ylim(pointSets[0][:,1].min()-ypad, pointSets[0][:,1].max()+ypad)
+    ax.set_aspect('equal', adjustable='box')
+    ax.set_title(name)
+    ax.set_xlabel("x (chord)")
+    ax.set_ylabel("y")
+    return fig, ax
+
+def generate_from_dvgeo(dvgeo, vals, basename, out_path, NACA=False, vis=False):
+    """
+    Generates an stl file of the input geometry in an output directory after applying 
+    geometric deformations
+
+    Args:
+        dvgeo (pygeo.DVGeometry): DVGeometry of the default multi-element airfoil configuration
+        vals (dict): must have entries "tw_slat", "tw_flap", "of_slat", "of_flap"
+            - tw_flap (float): flap rotation angle in degrees
+            - of_flap (np.array): dx,dy of the flap translation
+            - tw_slat (float): slat rotation angle in degrees
+            - of_slat (np.array): dx,dy of the slat translation
+        basename (str): default name of the multi-element airfoil. Includes NACA replacement digits if used
+        NACA (bool | list[str]): if using NACA replacement, list of the 4/5 digits with last 2 digits combined
+        vis (bool): True if images of the generated airfoil should be stored in "out_path/images"
+    
+    Returns:
+        None | str: Returns none if properly generated, str with error message if invalid
+    """
+    
+    f_r = vals["tw_flap"]
+    f_t = vals["of_flap"]
+    s_r = vals["tw_slat"]
+    s_t = vals["of_slat"]
+    out_name = f"{basename}_{f_r}_({f_t[0]},{f_t[1]})_{s_r}_({s_t[0]},{s_t[1]})"
+    airfoil_output = os.path.join(out_path, "STLs", f"{out_name}.stl")
+    start = time.time()
+
+    afoil = dvgeo.update("airfoil")
+    afoil_stl = afoil.reshape(-1,3,3)
+    stl_obj = mesh.Mesh(np.zeros(afoil_stl.shape[0], dtype=mesh.Mesh.dtype))
+    stl_obj.vectors[:] = afoil_stl
+    # geom = detect_geometry_info(stl_obj)
+
+    # vis_dir = os.path.join(out_path, "images")
+    # fig, ax = visualize(out_name, afoil, dvgeo.FFD.coef)
+    # slat_le = geom["slat"]["LE_point"]
+    # print(slat_le[0], slat_le[1])
+    # ax.scatter(slat_le[0], slat_le[1], s=1, color="red")
+    # fig.savefig(os.path.join(vis_dir, f"{out_name}.png"), dpi=300)
+    # plt.close(fig)
+
+    dv = dict()
+    dv["tw_slat"] = [s_r]
+    dv["tw_flap"] = [f_r]
+    dv["of_slat"] = s_t
+    dv["of_flap"] = f_t
+
+    dvgeo.setDesignVars(dv)
+    afoil = dvgeo.update("airfoil")
+    afoil_stl = afoil.reshape(-1,3,3)
+    stl_obj = mesh.Mesh(np.zeros(afoil_stl.shape[0], dtype=mesh.Mesh.dtype))
+    stl_obj.vectors[:] = afoil_stl
+    stl_obj.save("bleh.stl")
+    # stl_obj.save("blahblah.stl")
+
+    try:
+        geom = detect_geometry_info(stl_obj)
+
+        loop_main = boundary_loop_2d(geom["main"]["mesh"])
+        poly_main = Polygon(loop_main)
+
+        loop_slat = boundary_loop_2d(geom["slat"]["mesh"])
+        poly_slat = Polygon(loop_slat)
+
+        loop_flap = boundary_loop_2d(geom["flap"]["mesh"])
+        poly_flap = Polygon(loop_flap)
+        
+        # buf_main = poly_main.buffer(MIN_GAP)
+
+        gap_slat = poly_main.distance(poly_slat)
+        gap_flap = poly_main.distance(poly_flap)
+    except Exception as e:
+        return e
+
+    if gap_slat < MIN_GAP:
+        return f"Slat gap check failed (gap_slat: {gap_slat:.4f})."
+    elif gap_flap < MIN_GAP:
+        return f"Flap gap check failed (gap_flap: {gap_flap:.4f})."
+    
+    stl_obj.save(airfoil_output)
+
+    if vis:
+        vis_dir = os.path.join(out_path, "images")
+        fig, ax = visualize(out_name, afoil, dvgeo.FFD.coef)
+        # slat_le = geom["slat"]["LE_point"]
+        # ax.scatter(slat_le[0], slat_le[1], s=1, color="red")
+        fig.savefig(os.path.join(vis_dir, f"{out_name}.png"), dpi=300)
+        plt.close(fig)
+    
+    total_time = time.time() - start
+    if NACA:
+        print(f"Valid geometry created, NACA={"".join(map(str, NACA))} & [{f_r}, {f_t[:2]}, {s_r}, {s_t[:2]}]. Time: {total_time:2f}s")
+    else:
+        print(f"Valid geometry created, [{f_r}, {f_t}, {s_r}, {s_t}]. Time: {total_time:2f}s")
+
+def sample_generate_geometries(def_stl_name, bounds, n=300, NACA = False, NACA_chord_l = None, output_dir="output", vis=False):
+    """
+    Randomly samples multiple geometric configurations of some default multi-element airfoil
+    and stores them as stl files in an output directory.
+
+    Args:
+        def_stl_name (str): filename of the default stl
+        bounds (dict): dictionary of the boundary values for geometric deformations.
+                       Must have entries "tw_slat", "tw_flap", "of_slat", "of_flap" with
+                       values as an np.array of 2 floats as lower and upper bounds
+        NACA (bool | list[str]): if using NACA replacement, list of the 4/5 digits with last 2 digits combined
+        output_dir (str): name of directory for stl file output
+        vis (bool | str): if visualizing, name of output dir for photos
+
+    Returns:
+        None
+    """
+    # if not all(["tw_slat", "tw_flap", "of_slat", "of_flap"] in bounds):
+    #     raise ValueError('"tw_slat", "tw_flap", "of_slat", "of_flap" keys not in "bounds"')
+    start = time.time()
+    stl_input = "input/"+def_stl_name
+    def_stl_obj = mesh.Mesh.from_file(stl_input)
+    out_dir = os.path.join(os.getcwd(), output_dir)
+    basename = def_stl_name[:-4]
+    if NACA:
+        basename += "".join(map(str, NACA))
+        def_stl_obj = make_naca_replacement(def_stl_obj, NACA, NACA_chord_l)
+    os.makedirs(out_dir, exist_ok=True)
+    ffd_file = os.path.join(out_dir, "ffd", f"{basename}FFD.xyz")
+    os.makedirs(out_dir+"/STLs", exist_ok=True)
+    if not os.path.exists(ffd_file):
+        os.makedirs(out_dir+"/ffd", exist_ok=True)
+        generate_global_ffd(def_stl_obj, ffd_filename=ffd_file)
+    else:
+        print(f"FFD file '{ffd_file}' already exists. Using the existing grid.")
+    if vis:
+        os.makedirs(os.path.join(out_dir, "images"), exist_ok=True)
+    geom0 = detect_geometry_info(def_stl_obj)
+    pts0  = def_stl_obj.vectors.reshape(-1, 3)
+    dvgeo, idx_f, idx_b = make_dvgeo(pts0, geom0, ffd_file)
+    accepted = 0
+    trials = 0
+    continued_fail = 0
+    while accepted < n:
+        print(f"Initiating trial {trials}.")
+        sample = random_sample(dv_ranges=bounds)
+        res = generate_from_dvgeo(dvgeo, sample, basename, out_dir, NACA, vis=True)
+        trials+=1
+        if res is None:
+            accepted+=1
+            print(f"Trial {trials} completed. {accepted}/{n} geometries generated")
+            continued_fail = 0
+        else:
+            print(str(res))
+            continued_fail +=1
+        if continued_fail >= 5:
+            print("Too many failures in a row. Try other bounds")
+            return
+    total_time = time.time()-start
+    print(f"All operations completed successfully. Total time: {total_time:.2f}s")
 
 def generate(geo_only=False, mesh_only=False, mesh_vis_only=False):
     t_start = time.time()
@@ -370,25 +533,37 @@ def generate(geo_only=False, mesh_only=False, mesh_vis_only=False):
     print(f"\nAll operations completed successfully. Total time: {total_time:.2f}s")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Airfoil geometry generation and meshing tool')
-    parser.add_argument('--geo-only', action='store_true',
-                        help='Only generate geometry and geometry visualizations')
-    parser.add_argument('--mesh-only', action='store_true',
-                        help='Only perform mesh generation')
-    parser.add_argument('--mesh-vis-only', action='store_true',
-                        help='Only generate mesh visualizations')
-    args = parser.parse_args()
+    # parser = argparse.ArgumentParser(description='Airfoil geometry generation and meshing tool')
+    # with open('bounds.yaml', 'r') as f: # hyperparameters of the model
+    #     params = yaml.safe_load(f)
     
-    # Ensure only one flag is set at a time
-    if sum([args.geo_only, args.mesh_only, args.mesh_vis_only]) > 1:
-        parser.error("Please specify only one operation mode")
-    
-    generate(
-        geo_only=args.geo_only,
-        mesh_only=args.mesh_only,
-        mesh_vis_only=args.mesh_vis_only
-    )
+    # parser.add_argument('--geo-only', action='store_true',
+    #                     help='Only generate geometry and geometry visualizations')
+    # parser.add_argument('--mesh-only', action='store_true',
+    #                     help='Only perform mesh generation')
+    # parser.add_argument('--mesh-vis-only', action='store_true',
+    #                     help='Only generate mesh visualizations')
 
+    # args = parser.parse_args()
+    
+    # # Ensure only one flag is set at a time
+    # if sum([args.geo_only, args.mesh_only, args.mesh_vis_only]) > 1:
+    #     parser.error("Please specify only one operation mode")
+    
+    # generate(
+    #     geo_only=args.geo_only,
+    #     mesh_only=args.mesh_only,
+    #     mesh_vis_only=args.mesh_vis_only
+    # )
+
+    bounds = {"tw_slat": [0,60], 
+              "tw_flap": [-90, 90],
+              "of_slat": [[-0.03, -0.02, 0], [0.02, 0.02, 0]], 
+              "of_flap": [[-0.08, -0.02, 0], [0.07, 0.01, 0]]}
+    
+    # sample_generate_geometries("baseline30P30N.stl", bounds, 10, output_dir="output", vis=True)
+    sample_generate_geometries("baseline30P30N.stl", bounds, 5, [2,4,12], output_dir="output", vis=True)
+    # sample_generate_geometries("baseline30P30N.stl", bounds, 5, [6,4,12], 1, output_dir="output", vis=True)
     # python generator.py
     # python generator.py --geo-only
     # python generator.py --mesh-only

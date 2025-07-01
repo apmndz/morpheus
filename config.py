@@ -6,8 +6,8 @@ OUT_DIR = "output"
 N_SAMPLES = 50
 
 # Geometry constraints 
-MIN_GAP = 0.0065
-MAX_GAP = 0.03
+MIN_GAP = 0.0005
+MAX_GAP = 0.04
 
 # Visualization settings
 DPI = 240
@@ -39,10 +39,10 @@ VERT_FLAP = (-0.02, 0.01)  # vertical movement range for flap
 
 # Design Features Toggle
 ENABLE_BUMPS = False  # Toggle random surface bumps on/off
-ENABLE_SLAT_ROTATION = False # Toggle slat rotation
+ENABLE_SLAT_ROTATION = True # Toggle slat rotation
 ENABLE_FLAP_ROTATION = True   # Toggle flap rotation
 ENABLE_SLAT_TRANSLATION = True # Toggle slat translation
-ENABLE_FLAP_TRANSLATION = False # Toggle flap translation
+ENABLE_FLAP_TRANSLATION = True # Toggle flap translation
 
 # Bump parameters
 BUMP_ITER_RANGE = (1, 5)      # number of iterations

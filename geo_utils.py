@@ -44,7 +44,12 @@ def _label_by_centroid(parts):
 
 
 def detect_geometry_info(airfoil_stl):
-    """Return dict[name] → {LE_point, TE_point, mesh, chord_vector}."""
+    """Return dict[name] → {LE_point, TE_point, mesh, chord_vector}.
+    
+    Args:
+        airfoil_stl (numpy-stl.mesh.Mesh): stl object of the multi-element airfoil
+
+    """
     parts = numpy_stl_to_pyvista(airfoil_stl).connectivity().split_bodies()
     if len(parts) != 3:
         raise RuntimeError("expecting exactly 3 solid parts")
@@ -56,7 +61,7 @@ def detect_geometry_info(airfoil_stl):
             "LE_point": le,
             "TE_point": te,
             "mesh":     mesh,
-            "chord_vector": (te - le) / np.linalg.norm(te - le),
+            "chord_vector": (te - le) # / np.linalg.norm(te - le),
         }
     return info
 
@@ -176,7 +181,7 @@ def _rotate_xy(pts, R, origin):
     return out
 
 
-def generate_global_ffd(baseline_stl="baseline30P30N.stl", ffd_filename="airfoilFFD.xyz", dims=None, margin=0.01):
+def generate_global_ffd(baseline_stl=mesh.Mesh.from_file("input/baseline30P30N.stl"), ffd_filename="airfoilFFD.xyz", dims=None, margin=0.001):
     """
     Builds a simple 3-block FFD lattice around baseline_stl and writes a Tecplot-style .xyz file.
     
@@ -459,8 +464,8 @@ def pyvista_to_numpy_stl(pv_mesh_obj):
 def make_naca_replacement(default_stl, naca_digits, chord_l=None):
     elts = detect_geometry_info(default_stl)
     le, te = elts["main"]["LE_point"][:2], elts["main"]["TE_point"][:2]
+    og_te_x = te[0]
     if chord_l is not None:
-        og_te_x = te[0]
         te[0] = le[0]+(chord_l**2-(te[1]-le[1])**2)**(1/2)  # change TE x value to make chord length
     naca = make_naca_stl(naca_digits, le, te)
     flap_slat = remove_main(default_stl)

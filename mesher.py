@@ -4,7 +4,7 @@ import sys
 import glob
 import time
 import argparse
-from input.config import N_PROCESSORS
+from config import N_PROCESSORS
 
 
 def run_command(cmd, cwd):
@@ -55,7 +55,7 @@ def build_mesh_animation(output_dir):
     import pyvista as pv
     import imageio
     from geo_utils import detect_geometry_info
-    from input.config import SAVE_EVERY
+    from morpheus.config import SAVE_EVERY
     
     pv.set_plot_theme('document')
     

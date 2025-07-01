@@ -8,6 +8,13 @@ from scipy.stats import qmc
 # Format reminder:
 #   Scalars: key -> (min, max)
 #   Vectors: key -> [(min, max), ...]
+
+def random_sample(dv_ranges):
+    res = dict()
+    for name, (upper, lower) in dv_ranges.items():
+        res[name] = np.around(np.random.uniform(lower, upper), decimals=2)
+    return res
+
 def _flatten_dv_ranges(dv_ranges):
     """
     Convert dv_ranges dict into a flat list of (key, subindex, lower, upper) tuples.
