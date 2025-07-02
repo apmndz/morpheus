@@ -6,8 +6,8 @@ OUT_DIR = "output"
 N_SAMPLES = 50
 
 # Geometry constraints 
-MIN_GAP = 0.0005
-MAX_GAP = 0.04
+MIN_GAP = 0.005
+MAX_GAP = 0.1
 
 # Visualization settings
 DPI = 240

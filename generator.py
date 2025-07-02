@@ -51,7 +51,7 @@ def get_initial_angle(chord_vector):
 
 def r_slat(v, g):
     """Apply slat rotation relative to horizontal if enabled"""
-    g.rot_z["slat"].coef[:] = - v[0] - g.initial_slat_angle
+    g.rot_z["slat"].coef[:] = v[0] - g.initial_slat_angle
 
 def r_flap(v, g):
     """Apply flap rotation relative to horizontal if enabled"""
@@ -80,7 +80,7 @@ def make_dvgeo(pts, geom, ffd_filename):
     dv = DVGeometry(ffd_filename)
     
     # Calculate initial angles from geometry info we already have
-    dv.initial_slat_angle = -90 + get_initial_angle(geom["slat"]["chord_vector"])
+    dv.initial_slat_angle = get_initial_angle(geom["slat"]["chord_vector"])
     dv.initial_flap_angle = get_initial_angle(geom["flap"]["chord_vector"])
     
     # Set up reference axes and design variables
@@ -97,7 +97,7 @@ def make_dvgeo(pts, geom, ffd_filename):
     slat_trans = [0.0, 0.0, 0.0] if ENABLE_SLAT_TRANSLATION else None  # Added third component
     flap_trans = [0.0, 0.0, 0.0] if ENABLE_FLAP_TRANSLATION else None  # Added third component
     
-    dv.addGlobalDV("tw_slat", [90.0], r_slat)
+    dv.addGlobalDV("tw_slat", [0.0], r_slat)
     dv.addGlobalDV("tw_flap", [0.0], r_flap)
     if slat_trans is not None:
         dv.addGlobalDV("of_slat", slat_trans, o_slat)
@@ -115,21 +115,63 @@ def update_decompose_par_dict(filepath, n_proc):
         else:
             print(line, end='')
 
-def visualize(name, *pointSets):
+def visualize(name, baseline_pts, *pointSets):
     fig, ax = plt.subplots(figsize=(6, 3))
-    for points in pointSets:
-        xpad = (points[:,0].max()-points[:,0].min())*0.075
-        ypad = (points[:,1].max()-points[:,1].min())*.7
-        ax.scatter(points[:, 0], points[:, 1], s=1)
-    ax.set_xlim(pointSets[0][:,0].min()-xpad, pointSets[0][:,0].max()+xpad)
-    ax.set_ylim(pointSets[0][:,1].min()-ypad, pointSets[0][:,1].max()+ypad)
+    
+    # Use baseline geometry bounds
+    xpad = (baseline_pts[:,0].max()-baseline_pts[:,0].min())*0.075
+    ypad = (baseline_pts[:,1].max()-baseline_pts[:,1].min())*1.5
+    
+    # Set up the plot with fixed bounds based on baseline
+    ax.set_xlim(baseline_pts[:,0].min()-xpad, baseline_pts[:,0].max()+xpad)
+    ax.set_ylim(baseline_pts[:,1].min()-ypad, baseline_pts[:,1].max()+ypad)
     ax.set_aspect('equal', adjustable='box')
     ax.set_title(name)
     ax.set_xlabel("x (chord)")
     ax.set_ylabel("y")
+    
+    # Plot the geometry (first pointset)
+    if len(pointSets) >= 1:
+        try:
+            # Assume first pointset is the airfoil geometry
+            afoil = pointSets[0]
+            
+            # Create a temporary STL to detect geometry
+            temp_stl = mesh.Mesh(np.zeros(len(afoil) // 3, mesh.Mesh.dtype))
+            temp_stl.vectors[:] = afoil.reshape(-1, 3, 3)
+            
+            # Detect geometry components
+            geom = detect_geometry_info(temp_stl)
+            
+            # Plot each component with different colors and styles
+            loop_main = boundary_loop_2d(geom["main"]["mesh"])
+            loop_slat = boundary_loop_2d(geom["slat"]["mesh"])
+            loop_flap = boundary_loop_2d(geom["flap"]["mesh"])
+            
+            ax.plot(loop_main[:,0], loop_main[:,1], '-', lw=.6, color='gray', label='Main')
+            ax.plot(loop_slat[:,0], loop_slat[:,1], '-', lw=.6, color='steelblue', label='Slat')
+            ax.plot(loop_flap[:,0], loop_flap[:,1], '-', lw=.6, color='seagreen', label='Flap')
+            
+            # Add buffer visualization if MIN_GAP is defined
+            try:
+                from shapely.geometry import Polygon
+                poly_main = Polygon(loop_main)
+                buf_main = poly_main.buffer(MIN_GAP)
+                ax.plot(*buf_main.exterior.xy, '--', lw=.6, color='orange', label='Gap Buffer')
+            except:
+                pass
+                
+        except Exception:
+            # Fall back to simple scatter plot if geometry detection fails
+            ax.scatter(pointSets[0][:, 0], pointSets[0][:, 1], s=1, color='gray')
+    
+    # Plot any additional pointsets (like FFD control points)
+    # for i, points in enumerate(pointSets[1:], 1):
+    #     ax.scatter(points[:, 0], points[:, 1], s=2, alpha=0.7, label=f'Points {i}')
+    
     return fig, ax
 
-def generate_from_dvgeo(dvgeo, vals, basename, out_path, NACA=False, vis=False):
+def generate_from_dvgeo(dvgeo, vals, basename, out_path, baseline_pts, NACA=False, vis=False):
     """
     Generates an stl file of the input geometry in an output directory after applying 
     geometric deformations
@@ -197,17 +239,16 @@ def generate_from_dvgeo(dvgeo, vals, basename, out_path, NACA=False, vis=False):
 
     if vis:
         vis_dir = os.path.join(out_path, "images")
-        fig, ax = visualize(out_name, afoil, dvgeo.FFD.coef)
-        # slat_le = geom["slat"]["LE_point"]
-        # ax.scatter(slat_le[0], slat_le[1], s=1, color="red")
+        fig, ax = visualize(out_name, baseline_pts, afoil, dvgeo.FFD.coef)
         fig.savefig(os.path.join(vis_dir, f"{out_name}.png"), dpi=300)
         plt.close(fig)
     
     total_time = time.time() - start
     if NACA:
-        print(f"Valid geometry created, NACA={"".join(map(str, NACA))} & [{f_r}, {f_t[:2]}, {s_r}, {s_t[:2]}]. Time: {total_time:2f}s")
+        naca_str = "".join(map(str, NACA))
+        print(f"Valid geometry created, NACA={naca_str} & [{f_r}, {f_t[:2]}, {s_r}, {s_t[:2]}]. Time: {total_time:.2f}s")
     else:
-        print(f"Valid geometry created, [{f_r}, {f_t}, {s_r}, {s_t}]. Time: {total_time:2f}s")
+        print(f"Valid geometry created, [{f_r}, {f_t}, {s_r}, {s_t}]. Time: {total_time:.2f}s")
 
 def sample_generate_geometries(def_stl_name, bounds, n=300, NACA = False, NACA_chord_l = None, output_dir="output", vis=False):
     """
@@ -248,15 +289,16 @@ def sample_generate_geometries(def_stl_name, bounds, n=300, NACA = False, NACA_c
     if vis:
         os.makedirs(os.path.join(out_dir, "images"), exist_ok=True)
     geom0 = detect_geometry_info(def_stl_obj)
-    pts0  = def_stl_obj.vectors.reshape(-1, 3)
+    pts0  = def_stl_obj.vectors.reshape(-1, 3)  # This is our baseline reference
     dvgeo, idx_f, idx_b = make_dvgeo(pts0, geom0, ffd_file)
+    
     accepted = 0
     trials = 0
     continued_fail = 0
     while accepted < n:
         print(f"Initiating trial {trials}.")
         sample = random_sample(dv_ranges=bounds)
-        res = generate_from_dvgeo(dvgeo, sample, basename, out_dir, NACA, vis=vis)
+        res = generate_from_dvgeo(dvgeo, sample, basename, out_dir, pts0, NACA, vis=vis)  # Pass pts0
         trials+=1
         if res is None:
             accepted+=1
@@ -267,7 +309,7 @@ def sample_generate_geometries(def_stl_name, bounds, n=300, NACA = False, NACA_c
             continued_fail +=1
         if continued_fail >= 5:
             print("Too many failures in a row. Try other bounds")
-            return
+            # return
     total_time = time.time()-start
     print(f"All operations completed successfully. Total time: {total_time:.2f}s")
 
@@ -541,14 +583,25 @@ if __name__ == "__main__":
     #     mesh_vis_only=args.mesh_vis_only
     # )
 
-    bounds = {"tw_slat": [0,60], 
-              "tw_flap": [-90, 90],
-              "of_slat": [[-0.03, -0.02, 0], [0.02, 0.02, 0]], 
-              "of_flap": [[-0.08, -0.02, 0], [0.07, 0.01, 0]]}
-    
-    sample_generate_geometries("baseline30P30N.stl", bounds, 10, output_dir="output2", vis=False)
-    sample_generate_geometries("baseline30P30N.stl", bounds, 5, [2,4,12], output_dir="output", vis=False)
-    sample_generate_geometries("baseline30P30N.stl", bounds, 5, [6,4,12], 1, output_dir="output2", vis=False)
+    bounds_1 = {"tw_slat": [-20, 55], "tw_flap": [-90, 0], "of_slat": [[-0.03, -0.02, 0], [0.02, 0.02, 0]], "of_flap": [[-0.08, -0.02, 0], [0.07, 0.01, 0]]}
+    bounds_2 = {"tw_slat": [-20, 55], "tw_flap": [-90, 0], "of_slat": [[-0.03, -0.02, 0], [0.02, 0.02, 0]], "of_flap": [[-0.08, -0.02, 0], [0.07, 0.01, 0]]}
+    bounds_3 = {"tw_slat": [-20, 55], "tw_flap": [-90, 0], "of_slat": [[-0.03, -0.02, 0], [0.02, 0.02, 0]], "of_flap": [[-0.08, -0.02, 0], [0.07, 0.01, 0]]}
+    bounds_4 = {"tw_slat": [-20, 55], "tw_flap": [-10,75], "of_slat": [[-0.03, -0.02, 0], [0.02, 0.02, 0]], "of_flap": [[-0.08, -0.02, 0], [0.07, 0.01, 0]]}
+    bounds_5 = {"tw_slat": [-20, 55], "tw_flap": [-10,75], "of_slat": [[-0.03, -0.02, 0], [0.02, 0.02, 0]], "of_flap": [[-0.08, -0.02, 0], [0.07, 0.01, 0]]} 
+    bounds_6 = {"tw_slat": [-20, 55], "tw_flap": [-10,75], "of_slat": [[-0.03, -0.02, 0], [0.02, 0.02, 0]], "of_flap": [[-0.08, -0.02, 0], [0.07, 0.01, 0]]}
+    bounds_7 = {"tw_slat": [-20, 55], "tw_flap": [-10,75], "of_slat": [[-0.03, -0.02, 0], [0.02, 0.02, 0]], "of_flap": [[-0.08, -0.02, 0], [0.07, 0.01, 0]]}
+    bounds_8 = {"tw_slat": [-20, 55], "tw_flap": [-10,75], "of_slat": [[-0.03, -0.02, 0], [0.02, 0.02, 0]], "of_flap": [[-0.08, -0.02, 0], [0.07, 0.01, 0]]}
+
+
+    sample_generate_geometries("baseline30P30N.stl", bounds_1, 10, output_dir="output1", vis=True)
+    sample_generate_geometries("baseline30P30N.stl", bounds_2, 10, [0,0,15], output_dir="output2", vis=True)
+    sample_generate_geometries("baseline30P30N.stl", bounds_3, 10, [8,4,12], .5, output_dir="output3", vis=True)
+    sample_generate_geometries("baseline30P30N.stl", bounds_4, 10, [4,4,15], .75, output_dir="output4", vis=True)
+    sample_generate_geometries("baseline30P30N.stl", bounds_5, 10, [2,4,15], 1, output_dir="output5", vis=True)
+    sample_generate_geometries("baseline30P30N.stl", bounds_6, 10, output_dir="output6", vis=True)
+    sample_generate_geometries("baseline30P30N.stl", bounds_7, 10, output_dir="output7", vis=True)
+    sample_generate_geometries("baseline30P30N.stl", bounds_8, 10, output_dir="output8", vis=True)
+
     # python generator.py
     # python generator.py --geo-only
     # python generator.py --mesh-only
