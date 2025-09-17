@@ -1,6 +1,7 @@
-<h1>Morpheus</h1>
+# ✈️ Morpheus
 
-<p>An aero design tool that can turn one multi-element airfoil into thousands of unique designs. <strong>All you need</strong> is a starting <strong>STL</strong> file, and Morpheus will do the rest!</p>
+Morpheus is an **aero design automation tool** that transforms a single multi-element airfoil into **thousands of unique, valid geometries**.  
+With only a starting **STL file**, Morpheus parameterizes and exports designs, making it easy to explore vast aerodynamic design spaces.
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/56f02c4e-f1c2-4c44-bea5-abb7ef59555e" width="350"/>
@@ -9,19 +10,44 @@
   <img src="https://github.com/user-attachments/assets/bf342105-dd8a-4c11-b028-af300ce1a35a" width="350"/>
 </p>
 
-<h2>Airfoil Parametrization</h2>
+---
 
-This diagram illustrates the transformations applied to each aerodynamic element:
+## 🔧 Features
+- **Airfoil parametrization**: Rotate, translate, and reshape slats and flaps with flexible bounds.  
+- **Automated geometry generation**: Create hundreds or thousands of STLs with a single command.  
+- **Customizable constraints**: Define chord lengths, element gaps, and transformation ranges.  
+- **Visualization on the fly**: Preview selected geometries during batch generation.  
+
+---
+
+## 📐 Airfoil Parametrization
+
+Each aerodynamic element can be transformed according to well-defined rules:
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/c8a59cc4-1158-41b3-818c-b087c70549e1" width="800"/>
 </p>
 
-- The **slat can be rotated** about its **trailing edge**; the angle is defined as being between the horizontal and the slat’s chord line.
-- The **slat can be translated** in the **x** and **y** directions.
-- The **slat overhang** is the minimum **horizontal** distance between the slat and the **leading edge** of the main body. Overhang can be **positive or negative**.
-- The **flap can be rotated** about its **leading edge**; the angle is defined as being between the horizontal and the flap’s chord line.
-- The **flap can be translated** in the **x** and **y** directions.
-- The **flap overhang** is the minimum **horizontal** distance between the flap and the **trailing edge** of the main body.
-- The **gap width** is the minimum distance that can exist between the main body and the other elements.
-- A **desired range** of each of these parameters can be set by the user in input/config.py.
+- **Slat rotation**: Rotate about its trailing edge; angle defined between the horizontal axis and slat chord line.  
+- **Slat translation**: Move along both **x** and **y** axes.  
+- **Slat overhang**: Minimum horizontal distance between the slat and the main body’s leading edge (positive or negative).  
+- **Flap rotation**: Rotate about its leading edge; angle defined between the horizontal axis and flap chord line.  
+- **Flap translation**: Move along both **x** and **y** axes.  
+- **Flap overhang**: Minimum horizontal distance between the flap and the trailing edge of the main body.  
+- **Gap width**: Minimum distance allowed between adjacent elements.  
+- All ranges are fully configurable in [`config.yaml`](./config.yaml).  
+
+---
+
+## 📦 Requirements
+Morpheus depends on the following Python libraries:
+- `numpy`  
+- `matplotlib`  
+- `pygeo`  
+- `pyspline`  
+- `trimesh`  
+- `pyyaml`  
+
+To install them all at once, run:
+```bash
+pip install -r requirements.txt
