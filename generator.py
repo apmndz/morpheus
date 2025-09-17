@@ -99,24 +99,23 @@ def visualize(name, bounds, afoil):
     ax.set_xlabel("x (chord)")
     ax.set_ylabel("y")
     ax.set_aspect("equal", adjustable="box")
-    # ax.scatter(*afoil.vertices[:, :2].T, c="blue", s=1)
     loops = offset(afoil, 0)
     for loop in loops:
         ax.plot(loop[:, 0], loop[:, 1], 'b-', lw=1)
     return fig, ax
 
-def apply_deformation(dvgeo, vals, basename, out_path, min_gap=0.005, vis=False):
+def apply_deformation(dvgeo, vals, min_gap=0.005, max_gap=None):
     """
     Generates an stl file of the input geometry in an output directory after applying 
     geometric deformations
 
     Args:
         dvgeo (DVGeometry): DVGeometry of the default multi-element airfoil configuration
-        vals (dict): must have entries "tw_slat", "tw_flap", "of_slat", "of_flap"
+        vals (dict): must have entries "tw_slat", "tw_flap", "tr_slat", "tr_flap"
             - tw_flap (float): flap rotation angle in degrees
-            - of_flap (np.array): dx, dy of the flap translation
+            - tr_flap (np.array): dx, dy of the flap translation
             - tw_slat (float): slat rotation angle in degrees
-            - of_slat (np.array): dx, dy of the slat translation
+            - tr_slat (np.array): dx, dy of the slat translation
         basename (str): default name of the multi-element airfoil. Includes NACA replacement digits if used
         out_path (str): path of desired output
         min_gap (float): minimum distance for main/slat & main/flap gaps
@@ -126,41 +125,33 @@ def apply_deformation(dvgeo, vals, basename, out_path, min_gap=0.005, vis=False)
     Returns:
         None | str: Returns None if properly generated, str with error message if invalid
     """
-    start = time.time()
-    if vis:
-        vis = [[-0.2, 1.4], [-0.4, 0.4]]
-    if not os.path.exists(out_path+"/STLs"):
-        os.makedirs(out_path+"/STLs")
     f_r = vals["tw_flap"]
-    f_t = vals["of_flap"]
+    f_t = vals["tr_flap"]
     s_r = vals["tw_slat"]
-    s_t = vals["of_slat"]
-    out_name = basename+"_"+"_".join([str(f_r), str(f_t[0]), str(f_t[1]), str(s_r), str(s_t[0]), str(s_t[1])])
-    airfoil_output = os.path.join(out_path, "STLs", f"{out_name}.stl")
+    s_t = vals["tr_slat"]
     dv = {"tw_slat": [s_r],
           "tw_flap": [f_r],
-          "of_slat": s_t,
-          "of_flap": f_t}
+          "tr_slat": s_t,
+          "tr_flap": f_t}
     dvgeo.setDesignVars(dv)
     afoil = dvgeo.update("airfoil")
     afoil_mesh = trimesh.Trimesh(afoil, dvgeo.faces)
     slat, main, flap = [Polygon(x) for x in offset(afoil_mesh, 0)]
+
     gap_slat = main.distance(slat)
     if gap_slat < min_gap:
-        return f"Slat gap check failed (gap_slat: {gap_slat:.4f})."
+        return f"slat gap below minimum (gap_slat: {gap_slat:.4f} < {min_gap})"
+    elif max_gap is not None and gap_slat > max_gap:
+        return f"slat gap above maximum: (gap_slat: {gap_slat:.4f} > {max_gap})"
+
     gap_flap = main.distance(flap)
     if gap_flap < min_gap:
-        return f"Flap gap check failed (gap_flap: {gap_flap:.4f})."
-    afoil_mesh.export(airfoil_output)
-    if vis:
-        vis_dir = out_path+"/images"
-        fig, _ = visualize(out_name, vis, afoil_mesh)
-        fig.savefig(vis_dir+f"/{out_name}.png", dpi=300)
-        plt.close(fig)
-    total_time = time.time()-start
-    print(f"Valid geometry created. Time: {total_time:.2f}")
-    
-def mass_sample(def_stl_path, bounds, min_gap=0.005, n=300, main_replace=False, replace_chord_l=None, output_dir="output", vis=False):
+        return f"flap gap below minimum (gap_flap: {gap_flap:.4f} < {min_gap})"
+    elif max_gap is not None and gap_flap > max_gap:
+        return f"flap gap above maximum (gap_flap: {gap_flap:.4f} > {max_gap})"
+    return afoil_mesh
+
+def generate_geometries(params, output="output"):
     """
     Randomly samples multiple geometric configurations of some default multi-element airfoil
     and stores them as stl files in an output directory.
@@ -178,10 +169,12 @@ def mass_sample(def_stl_path, bounds, min_gap=0.005, n=300, main_replace=False, 
         None
     """
     start = time.time()
-    output_dir = "output/" + output_dir
+    def_stl_path = params["default_stl_path"]
+    main_replace = params["main_replace"]
+    output_dir = output
     def_stl_obj = trimesh.load_mesh("input/"+def_stl_path)
     basename = def_stl_path.split("/")[-1][:-4]
-    if main_replace:
+    if main_replace is not None:
         if isinstance(main_replace, list):
             # this means it's a naca airfoil
             mod_name = basename+"_"+"".join(map(str, main_replace))
@@ -191,11 +184,11 @@ def mass_sample(def_stl_path, bounds, min_gap=0.005, n=300, main_replace=False, 
             mod_name = basename+"_"+main_replace.split("/")[-1][:-4]
             replacement = read_dat("input/"+main_replace)
         else:
-            raise ValueError(f"main_replace should only be of type (False, list, or str). It's currently of type {type(main_replace)}")
-        modified = main_replacement(def_stl_obj, replacement, replace_chord_l)
+            raise ValueError(f"main_replace should only be of type (None, list, or str). It's currently of type {type(main_replace)}")
+        modified = main_replacement(def_stl_obj, replacement, params["replace_chord_l"])
     else:
         modified = def_stl_obj
-        mod_name = basename+"_main"
+        mod_name = basename+"_def"
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(output_dir+"/STLs", exist_ok=True)
     os.makedirs(output_dir+"/images", exist_ok=True)
@@ -204,37 +197,33 @@ def mass_sample(def_stl_path, bounds, min_gap=0.005, n=300, main_replace=False, 
         os.makedirs(output_dir+"/ffd", exist_ok=True)
         make_ffd_all(modified, ffd_file)
     else:
-        print(f"FFD file '{ffd_file}' already exists. Usingthe existing grid")
+        print(f"FFD file '{ffd_file}' already exists. Using the existing grid")
     dv = make_dvgeo(modified, ffd_file)
     accepted = 0
     trials = 0
     continued_fail = 0
+    n = params["n_samples"]
     while accepted < n:
-        print(f"Initiating trial {trials}.")
-        sample = random_sample(dv_ranges=bounds)
-        res = apply_deformation(dv, sample, mod_name, output_dir, min_gap, vis)
+        trial_time_start = time.time()
+        s = random_sample(dv_ranges=params["bounds"])
+        res = apply_deformation(dv, s, params["min_gap"], params["max_gap"])
         trials+=1
-        if res is None:
-            accepted+=1
-            print(f"Trial {trials} completed. {accepted}/{n} geometries generated")
-            continued_fail = 0
-        else:
-            print(str(res))
+        if isinstance(res, str): # this means the gap failed
+            print(res)
             continued_fail +=1
-        if continued_fail >= 10:
+        else:
+            name = f"{mod_name}_{s["tw_slat"]}_{s["tr_slat"][0]}_{s["tr_slat"][1]}_{s["tw_flap"]}_{s["tr_flap"][0]}_{s["tr_flap"][1]}"
+            res.export(f"{output_dir}/STLs/{name}.stl")
+            if accepted % params["vis"] == 0:
+                fig, _ = visualize(name, [[-0.2, 1.4],[-0.2, 0.2]], res)
+                fig.savefig(f"{output_dir}/images/{name}.png", dpi=300)
+                plt.close(fig)
+            print(f"Successful trial {trials} completed in {(time.time()-trial_time_start):.2f}s | {accepted}/{n} geometries")
+            accepted+=1
+            continued_fail = 0
+        if continued_fail >= 20:
             print("Too many failures in a row. Try other bounds")
             return
     total_time = time.time()-start
     print(f"All operations completed successfully. Total time: {total_time:.2f}s")
-
-bounds_1 = {"tw_slat": [0, 60], "tw_flap": [-90, 90], "of_slat": [[-0.03, -0.02], [0.02, 0.02]], "of_flap": [[-0.03, -0.02], [0.07, 0.01]]}
-
-# for filename in os.listdir("coord_seligFmt"):
-#     file_path = os.path.join("coord_seligFmt", filename)
-#     mass_sample("input/30P30N.stl", def_bounds, n=1, output_dir="UIUC3", main_replace=file_path, vis=True)
-
-# main element replace with dat file defining points
-mass_sample("30P30N.stl", bounds_1, n=100, output_dir="output7", main_replace='coord_seligFmt/ag16.dat', replace_chord_l=1, vis=True)
-
-# main element replace with a naca airfoil
-mass_sample("30P30N.stl", bounds_1, n=100, output_dir="output8", main_replace=[0, 0, 12], replace_chord_l=1, vis=True)
+    
