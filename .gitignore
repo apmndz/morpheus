@@ -1,1 +1,7 @@
 venv
+output*
+animate*
+animation.py
+check.py
+selection
+__pycache__

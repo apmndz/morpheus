@@ -5,7 +5,7 @@ from generator import generate_geometries
 with open('config.yaml', 'r') as file:
     params = yaml.safe_load(file)
 
-generate_geometries(params, "output")
+# generate_geometries(params, "output")
 
 # generating with many main element replacements
 

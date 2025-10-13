@@ -1,24 +1,23 @@
-n_samples: 1
+n_samples: 1000
 
 default_stl_path: "30P30N.stl"
-main_replace: "coord_seligFmt/a18.dat" # can be [0, 0, 12] for NACA or None for default
-replace_chord_l: 1 # can be None for default
+
+main:  [6, 4, 12] # can be [0, 0, 12] for NACA or None for default
+main_chrd: 1.1 # can be None for default
+slat: [0, 0, 12]
+slat_chrd: 0.3
+flap: "coord_seligFmt/a18.dat"
+flap_chrd: 0.4
+
 
 min_gap: 0.005 # required
 max_gap: null # optional
 
-# bounds: {
-#   tw_slat: [0, 90],
-#   tw_flap: [-90, 90],
-#   tr_slat: [[-0.03, -0.02], [0.02, 0.02]],
-#   tr_flap: [[-0.03, -0.02], [0.07, 0.01]],
-# }
-
 bounds: {
-  tw_slat: [30, 30],
-  tw_flap: [30, 30],
-  tr_slat: [[0, 0], [0, 0]],
-  tr_flap: [[0, 0], [0, 0]],
+  tw_slat: [0, 90],
+  tw_flap: [-90, 90],
+  tr_slat: [[-0.03, -0.02], [0.02, 0.02]],
+  tr_flap: [[-0.03, -0.02], [0.07, 0.01]],
 }
 
-vis: 5 # visualizes every 1 time(s)
+vis: 1 # visualizes every n time(s)

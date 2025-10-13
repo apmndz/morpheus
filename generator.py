@@ -136,7 +136,7 @@ def apply_deformation(dvgeo, vals, min_gap=0.005, max_gap=None):
     dvgeo.setDesignVars(dv)
     afoil = dvgeo.update("airfoil")
     afoil_mesh = trimesh.Trimesh(afoil, dvgeo.faces)
-    slat, main, flap = [Polygon(x) for x in offset(afoil_mesh, 0)]
+    slat, main, flap = [Polygon(x) for x in offset(afoil_mesh, 0)][0:3]
 
     gap_slat = main.distance(slat)
     if gap_slat < min_gap:
@@ -170,29 +170,25 @@ def generate_geometries(params, output="output"):
     """
     start = time.time()
     def_stl_path = params["default_stl_path"]
-    main_replace = params["main_replace"]
     output_dir = output
     def_stl_obj = trimesh.load_mesh("input/"+def_stl_path)
     basename = def_stl_path.split("/")[-1][:-4]
-    if main_replace is not None:
-        if isinstance(main_replace, list):
-            # this means it's a naca airfoil
-            mod_name = basename+"_"+"".join(map(str, main_replace))
-            replacement = naca_generator(main_replace)
-        elif isinstance(main_replace, str):
-            # custom airfoil given by points
-            mod_name = basename+"_"+main_replace.split("/")[-1][:-4]
-            replacement = read_dat("input/"+main_replace)
-        else:
-            raise ValueError(f"main_replace should only be of type (None, list, or str). It's currently of type {type(main_replace)}")
-        modified = main_replacement(def_stl_obj, replacement, params["replace_chord_l"])
-    else:
-        modified = def_stl_obj
-        mod_name = basename+"_def"
+    modified = replacement(
+        def_stl_obj, 
+        [params["slat"], params["main"], params["flap"]],
+        [params["slat_chrd"], params["main_chrd"], params["flap_chrd"]])
+    for name in ("slat", "main", "flap"):
+        if params[name] is None:
+            basename+="_def"
+        elif isinstance(params[name], list):
+            basename+="_"+"".join(map(str, params[name]))
+        elif isinstance(params[name], str):
+            basename+="_"+params[name].split("/")[-1][:-4]
+        basename+="_"+str(params[name+"_chrd"])
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(output_dir+"/STLs", exist_ok=True)
     os.makedirs(output_dir+"/images", exist_ok=True)
-    ffd_file = output_dir+f"/ffd/{mod_name}FFD.xyz"
+    ffd_file = output_dir+f"/ffd/{basename}FFD.xyz"
     if not os.path.exists(ffd_file):
         os.makedirs(output_dir+"/ffd", exist_ok=True)
         make_ffd_all(modified, ffd_file)
@@ -212,10 +208,10 @@ def generate_geometries(params, output="output"):
             print(res)
             continued_fail +=1
         else:
-            name = f"{mod_name}_{s["tw_slat"]}_{s["tr_slat"][0]}_{s["tr_slat"][1]}_{s["tw_flap"]}_{s["tr_flap"][0]}_{s["tr_flap"][1]}"
+            name = f"{basename}_{s["tw_slat"]}_{s["tr_slat"][0]}_{s["tr_slat"][1]}_{s["tw_flap"]}_{s["tr_flap"][0]}_{s["tr_flap"][1]}"
             res.export(f"{output_dir}/STLs/{name}.stl")
             if accepted % params["vis"] == 0:
-                fig, _ = visualize(name, [[-0.2, 1.4],[-0.2, 0.2]], res)
+                fig, _ = visualize(name, [[-1, 2],[-0.5, 0.5]], res)
                 fig.savefig(f"{output_dir}/images/{name}.png", dpi=300)
                 plt.close(fig)
             print(f"Successful trial {trials} completed in {(time.time()-trial_time_start):.2f}s | {accepted}/{n} geometries")

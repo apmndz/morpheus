@@ -2,7 +2,7 @@ import numpy as np
 from sklearn.decomposition import PCA
 from shapely.geometry import Polygon
 import trimesh
-from trimesh.transformations import transform_points
+from trimesh.transformations import transform_points, translation_matrix, rotation_matrix
 
 def get_le_te(afoil):
     """
@@ -31,6 +31,18 @@ def get_le_te(afoil):
     leading_edge = afoil[i_le]
     trailing_edge = afoil[i_te]
     return leading_edge, trailing_edge
+
+def airfoil(afoil_input):
+    """
+    """
+    if isinstance(afoil_input, list):
+        # this means it's a naca airfoil
+        return "".join(map(str, afoil_input)), naca_generator(afoil_input)
+    elif isinstance(afoil_input, str):
+        # custom airfoil given by points
+        return afoil_input.split("/")[-1][:-4], read_dat("input/"+afoil_input)
+    else:
+        raise ValueError(f"main_replace should only be of type (None, list, or str). It's currently of type {type(afoil_input)}")
 
 def extrude(afoil2D, l=0.1):
     """
@@ -127,7 +139,36 @@ def decompose(afoil_mesh):
     #     raise ValueError(f"Expected 3 parts. Found {len(components)} parts.")
     return components
 
-def main_replacement(default_mesh, replace_afoil_2D, chord_l=None):
+# def main_replacement(default_mesh, replace_afoil_2D, chord_l=None):
+#     """
+#     Replaces the main element of a multi-element airfoil configuration with
+#     a given 2D airfoil and chord length. If no chord length is given, the length
+#     in the x direction of the main element is preserved. The replacement airfoil will have
+#     an angle of attack of 0 degrees.
+
+#     Args:
+#         default_mesh (Trimesh): mesh of the default multi-element airfoil
+#         replace_afoil_2D (np.array): set of points that outline the 2D airfoil
+#         chord_l (float): chord length of the replacement airfoil
+    
+#     Returns:
+#         Trimesh: mesh of the replaced multi-element airfoil
+#     """
+#     slats, main, flaps = decompose(default_mesh)
+#     le, te = get_le_te(main.vertices)
+#     deltaH = [0, le[1]-te[1], 0]
+#     og_xchrd = te[0]-le[0]
+#     if not chord_l:
+#         chord_l = og_xchrd
+#     else:
+#         deltaH[0] += chord_l-og_xchrd
+#     flaps.apply_translation(deltaH)
+#     scaled_afoil_2D = chord_l*replace_afoil_2D
+#     replace_afoil_mesh = extrude(scaled_afoil_2D)
+#     replace_afoil_mesh.apply_translation([*le, 0])
+#     return trimesh.util.concatenate([slats, replace_afoil_mesh, flaps])
+
+def replacement(default_mesh, replacements, chrds):
     """
     Replaces the main element of a multi-element airfoil configuration with
     a given 2D airfoil and chord length. If no chord length is given, the length
@@ -136,25 +177,66 @@ def main_replacement(default_mesh, replace_afoil_2D, chord_l=None):
 
     Args:
         default_mesh (Trimesh): mesh of the default multi-element airfoil
-        replace_afoil_2D (np.array): set of points that outline the 2D airfoil
-        chord_l (float): chord length of the replacement airfoil
+        replacements list(np.array): a list of sets of points that outline the 2D airfoils
+                                     in order slat, main, flap. None if default
+        chord_l list(float): chord length of each replacement airfoil in order slat, main, flap. None if default
     
     Returns:
         Trimesh: mesh of the replaced multi-element airfoil
     """
-    slats, main, flaps = decompose(default_mesh)
-    le, te = get_le_te(main.vertices)
-    deltaH = [0, le[1]-te[1], 0]
-    og_xchrd = te[0]-le[0]
-    if not chord_l:
-        chord_l = og_xchrd
-    else:
-        deltaH[0] += chord_l-og_xchrd
-    flaps.apply_translation(deltaH)
-    scaled_afoil_2D = chord_l*replace_afoil_2D
-    replace_afoil_mesh = extrude(scaled_afoil_2D)
-    replace_afoil_mesh.apply_translation([*le, 0])
-    return trimesh.util.concatenate([slats, replace_afoil_mesh, flaps])
+    names = ["slat", "main", "flap"]
+    elts = []
+    elements = decompose(default_mesh)
+    le_tes = [get_le_te(elt.vertices) for elt in elements]
+    main_to_flap_vec = le_tes[2][0]-le_tes[1][1] # flap le - main te
+
+    for i, elt in enumerate(elements):
+        le, te = le_tes[i]
+        chrd = te - le
+        chrd_l = np.linalg.norm(chrd)
+
+        if names[i] == "slat":
+            align_pt = te
+        else:
+            align_pt = le
+
+        if names[i] == "main":
+            theta = 0
+        else:
+            theta = np.arctan2(chrd[1], chrd[0])
+
+        if replacements[i] is not None:
+            new_elt = extrude(chrd_l*airfoil(replacements[i])[1])
+        else:
+            new_elt = elt
+        
+        if chrds[i] is not None:
+            scale = chrds[i]/chrd_l
+        else:
+            scale = 1
+        
+        if names[i] == "flap":
+            end_pt = get_le_te(elts[1].vertices)[1] + main_to_flap_vec
+        else:
+            end_pt = align_pt
+
+        to_origin = np.eye(4)
+        if replacements[i] is None:
+            to_origin[0:2, 3] -= align_pt
+        if names[i] == "slat":
+            le, te = get_le_te(new_elt.vertices)
+            new_chrd = te-le
+            to_origin[0:2, 3] -= new_chrd
+            pass
+        R = rotation_matrix(theta, [0,0,1])
+        S = np.diag([scale, scale, 1, 1])
+        to_final = np.eye(4)
+        to_final[0:2, 3] = end_pt
+        print(to_final, S, R, to_origin)
+        transform = to_final@R@S@to_origin
+        new_elt.apply_transform(transform)
+        elts.append(new_elt)
+    return trimesh.util.concatenate(elts)
 
 # NACA Generation (AirFRANS)
 
