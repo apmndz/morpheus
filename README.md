@@ -48,6 +48,3 @@ Morpheus depends on the following Python libraries:
 - `trimesh`  
 - `pyyaml`  
 
-To install them all at once, run:
-```bash
-pip install -r requirements.txt
