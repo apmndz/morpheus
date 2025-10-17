@@ -107,6 +107,11 @@ def offset(afoil_mesh, margin=0.005):
         offset_paths.append(original_3d[:, :2])
     return offset_paths
 
+def offset3D(afoil_mesh, margin=0.005):
+    loops = offset(afoil_mesh, margin)
+    meshes = [extrude(loop) for loop in loops]
+    return trimesh.util.concatenate(meshes)
+
 def bounding_box(mesh, margin=0.005):
     """
     Compute an axis-aligned bounding box (AABB) with a margin for a trimesh mesh.
