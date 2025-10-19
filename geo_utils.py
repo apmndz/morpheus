@@ -110,7 +110,7 @@ def offset(afoil_mesh, margin=0.005):
 def offset3D(afoil_mesh, margin=0.005):
     loops = offset(afoil_mesh, margin)
     meshes = [extrude(loop) for loop in loops]
-    return trimesh.util.concatenate(meshes)
+    return trimesh.boolean.union(meshes)
 
 def bounding_box(mesh, margin=0.005):
     """
@@ -140,38 +140,7 @@ def decompose(afoil_mesh):
     """
     components = afoil_mesh.split(only_watertight=True)
     components.sort(key=lambda c: c.centroid[0])
-    # if len(components) != 3:
-    #     raise ValueError(f"Expected 3 parts. Found {len(components)} parts.")
     return components
-
-# def main_replacement(default_mesh, replace_afoil_2D, chord_l=None):
-#     """
-#     Replaces the main element of a multi-element airfoil configuration with
-#     a given 2D airfoil and chord length. If no chord length is given, the length
-#     in the x direction of the main element is preserved. The replacement airfoil will have
-#     an angle of attack of 0 degrees.
-
-#     Args:
-#         default_mesh (Trimesh): mesh of the default multi-element airfoil
-#         replace_afoil_2D (np.array): set of points that outline the 2D airfoil
-#         chord_l (float): chord length of the replacement airfoil
-    
-#     Returns:
-#         Trimesh: mesh of the replaced multi-element airfoil
-#     """
-#     slats, main, flaps = decompose(default_mesh)
-#     le, te = get_le_te(main.vertices)
-#     deltaH = [0, le[1]-te[1], 0]
-#     og_xchrd = te[0]-le[0]
-#     if not chord_l:
-#         chord_l = og_xchrd
-#     else:
-#         deltaH[0] += chord_l-og_xchrd
-#     flaps.apply_translation(deltaH)
-#     scaled_afoil_2D = chord_l*replace_afoil_2D
-#     replace_afoil_mesh = extrude(scaled_afoil_2D)
-#     replace_afoil_mesh.apply_translation([*le, 0])
-#     return trimesh.util.concatenate([slats, replace_afoil_mesh, flaps])
 
 def replacement(default_mesh, replacements, chrds):
     """
