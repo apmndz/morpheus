@@ -181,6 +181,9 @@ def replacement(default_mesh, replacements, chrds):
 
         if replacements[i] is not None:
             new_elt = extrude(chrd_l*airfoil(replacements[i])[1])
+            if names[i] == "slat":
+                _, new_te = get_le_te(new_elt.vertices)
+                new_elt.apply_translation([-new_te[0], -new_te[1], 0])
         else:
             new_elt = elt
         
@@ -197,16 +200,17 @@ def replacement(default_mesh, replacements, chrds):
         to_origin = np.eye(4)
         if replacements[i] is None:
             to_origin[0:2, 3] -= align_pt
-        if names[i] == "slat":
-            le, te = get_le_te(new_elt.vertices)
-            new_chrd = te-le
-            to_origin[0:2, 3] -= new_chrd
-            pass
-        R = rotation_matrix(theta, [0,0,1])
+
+        # if names[i] == "slat":
+        #     le, te = get_le_te(new_elt.vertices)
+        #     new_chrd = te-le
+        #     to_origin[0:2, 3] -= new_chrd
+        if replacements[i] is not None:
+            R = rotation_matrix(theta, [0,0,1])
+        else: R = np.eye(4)
         S = np.diag([scale, scale, 1, 1])
         to_final = np.eye(4)
         to_final[0:2, 3] = end_pt
-        print(to_final, S, R, to_origin)
         transform = to_final@R@S@to_origin
         new_elt.apply_transform(transform)
         elts.append(new_elt)
