@@ -2,7 +2,7 @@ import numpy as np
 from sklearn.decomposition import PCA
 from shapely.geometry import Polygon
 import trimesh
-from trimesh.transformations import transform_points, translation_matrix, rotation_matrix
+from trimesh.transformations import transform_points, rotation_matrix
 
 def get_le_te(afoil):
     """
@@ -107,7 +107,7 @@ def offset(afoil_mesh, margin=0.005):
         offset_paths.append(original_3d[:, :2])
     return offset_paths
 
-def offset3D(afoil_mesh, margin=0.005):
+def offset3D(afoil_mesh, margin):
     loops = offset(afoil_mesh, margin)
     meshes = [extrude(loop) for loop in loops]
     return trimesh.boolean.union(meshes)
@@ -158,54 +158,49 @@ def replacement(default_mesh, replacements, chrds):
     Returns:
         Trimesh: mesh of the replaced multi-element airfoil
     """
-    names = ["slat", "main", "flap"]
     elts = []
     elements = decompose(default_mesh)
     le_tes = [get_le_te(elt.vertices) for elt in elements]
     main_to_flap_vec = le_tes[2][0]-le_tes[1][1] # flap le - main te
 
-    for i, elt in enumerate(elements):
+    for i, (name, elt, replace, new_chrd) in enumerate(zip(["slat", "main", "flap"], elements, replacements, chrds)):
         le, te = le_tes[i]
         chrd = te - le
         chrd_l = np.linalg.norm(chrd)
 
-        if names[i] == "slat":
+        if name == "slat":
             align_pt = te
         else:
             align_pt = le
 
-        if names[i] == "main":
+        if name == "main":
             theta = 0
         else:
             theta = np.arctan2(chrd[1], chrd[0])
 
-        if replacements[i] is not None:
-            new_elt = extrude(chrd_l*airfoil(replacements[i])[1])
-            if names[i] == "slat":
+        if replace is not None:
+            new_elt = extrude(chrd_l*airfoil(replace)[1])
+            if name == "slat":
                 _, new_te = get_le_te(new_elt.vertices)
                 new_elt.apply_translation([-new_te[0], -new_te[1], 0])
         else:
             new_elt = elt
         
-        if chrds[i] is not None:
-            scale = chrds[i]/chrd_l
+        if new_chrd is not None:
+            scale = new_chrd/chrd_l
         else:
             scale = 1
         
-        if names[i] == "flap":
+        if name == "flap":
             end_pt = get_le_te(elts[1].vertices)[1] + main_to_flap_vec
         else:
             end_pt = align_pt
 
         to_origin = np.eye(4)
-        if replacements[i] is None:
+        if replace is None:
             to_origin[0:2, 3] -= align_pt
 
-        # if names[i] == "slat":
-        #     le, te = get_le_te(new_elt.vertices)
-        #     new_chrd = te-le
-        #     to_origin[0:2, 3] -= new_chrd
-        if replacements[i] is not None:
+        if replace is not None:
             R = rotation_matrix(theta, [0,0,1])
         else: R = np.eye(4)
         S = np.diag([scale, scale, 1, 1])

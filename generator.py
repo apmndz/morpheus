@@ -15,7 +15,7 @@ def r_flap(v, g):
     """Apply flap rotation relative to horizontal if enabled"""
     g.rot_z["flap"].coef[:] = - v[0] - g.init_flap_angle
 
-def o_slat(v, g):
+def tr_slat(v, g):
     """Apply slat translation if enabled. v contains [gap, overhang, vertical]"""
     C = g.extractCoef("slat")
     # Only use overhang for x movement, ignore gap parameter
@@ -23,7 +23,7 @@ def o_slat(v, g):
     C[:,1] += v[1]  # v[2] is vertical
     g.restoreCoef(C, "slat")
 
-def o_flap(v, g):
+def tr_flap(v, g):
     """Apply flap translation if enabled. v contains [gap, overhang, vertical]"""
     C = g.extractCoef("flap")
     # Only use overhang for x movement, ignore gap parameter
@@ -84,8 +84,8 @@ def make_dvgeo(afoil_mesh, ffd_filename):
     flap_trans = [0, 0]
     dv.addGlobalDV("tw_slat", [0], r_slat)
     dv.addGlobalDV("tw_flap", [0], r_flap)
-    dv.addGlobalDV("of_slat", slat_trans, o_slat)
-    dv.addGlobalDV("of_flap", flap_trans, o_flap)
+    dv.addGlobalDV("tr_slat", slat_trans, tr_slat)
+    dv.addGlobalDV("tr_flap", flap_trans, tr_flap)
     dv.addPointSet(afoil_mesh.vertices, "airfoil")
     dv.faces = afoil_mesh.faces
     return dv
