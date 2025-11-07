@@ -59,6 +59,7 @@ def extrude(afoil2D, l=0.1):
         afoil2D = np.vstack([afoil2D, afoil2D[0]])
     poly = Polygon(afoil2D).buffer(0)
     extruded = trimesh.creation.extrude_polygon(poly, height=l)
+    extruded.apply_translation([0, 0, -l/2])
     return extruded
 
 def read_dat(path):
@@ -107,9 +108,12 @@ def offset(afoil_mesh, margin=0.005):
         offset_paths.append(original_3d[:, :2])
     return offset_paths
 
-def offset3D(afoil_mesh, margin):
+def offset3D(afoil_mesh, margin, z_depth = None):
     loops = offset(afoil_mesh, margin)
-    meshes = [extrude(loop) for loop in loops]
+    if z_depth is None:
+        z_coords = afoil_mesh.vertices[:, 2]
+        z_depth = np.max(z_coords)-np.min(z_coords)
+    meshes = [extrude(loop, z_depth) for loop in loops]
     return trimesh.boolean.union(meshes)
 
 def bounding_box(mesh, margin=0.005):
